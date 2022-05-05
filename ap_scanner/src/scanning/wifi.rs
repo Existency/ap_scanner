@@ -1,3 +1,4 @@
+use anyhow::{Context, Ok};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 // - Frequência, Canais, Potência
@@ -8,115 +9,117 @@ pub struct Wifi {
     pub ssid: String,
     // MAC address of the network
     pub mac: String,
-    // frequency of the network
-    pub freq: f32,
     // channel this network is on
     pub channel: u8,
     // quality of this wifi
     pub quality: f32,
-    // signal level in dBm
-    pub signal: i32,
 }
 
 #[cfg(target_os = "linux")]
-impl TryFrom<&str> for Wifi {
-    type Error = anyhow::Error;
-    // 0xE00101B0
+impl FromStr for Wifi {
+    type Err = anyhow::Error;
 
-    fn try_from(value: &str) -> anyhow::Result<Self> {
-        let mut lines = value.lines();
-
-        // need to check whether we have a valid input
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut lines = s.lines();
 
         let mac = lines
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No mac found."))?
-            .split("Address: ")
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("No mac found."))?;
+            .and_then(|line| line.split("Address: ").last())
+            .map(str::to_string)
+            .unwrap_or_default();
 
         let channel = lines
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No channel found."))?
-            .split("Channel:")
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("No channel found."))?
-            .parse::<u8>()?;
+            .and_then(|line| line.split("Channel:").last())
+            .and_then(|channel_str| channel_str.parse::<u8>().ok())
+            .with_context(|| anyhow::anyhow!("No channel found."))?;
 
-        let frequency = lines
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No frequency found."))?
-            .split("Frequency:")
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("No frequency found."))?
-            .split(" GHz")
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No frequency found."))?;
+        lines.next();
 
-        let freq = f32::from_str(frequency)?;
-
-        let mut tmp = lines
+        let quality = lines
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No quality found."))?
-            .split("Quality=")
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("No quality found."))?
-            .split("  ");
-
-        let mut quality = tmp
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No quality found."))?
-            .split('/');
-
-        let q1 = quality
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No quality found."))?
-            .parse::<f32>()?;
-
-        let q2 = quality
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No quality found."))?
-            .parse::<f32>()?;
-
-        let tmp_sig = tmp.collect::<String>();
-        let signal = tmp_sig
-            .split("level=")
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("No signal found."))?
-            .split(" dBm")
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No signal found."))?
-            .parse::<i32>()?;
+            .and_then(|line| line.split("Quality=").last())
+            .and_then(|tok| tok.split("  ").next())
+            .map(|quality| quality.split('/'))
+            .map(|mut quality| match (quality.next(), quality.next()) {
+                (Some(q1), Some(q2)) => Ok(q1.parse::<f32>()? / q2.parse::<f32>()?),
+                _ => Err(anyhow::anyhow!("No quality found.")),
+            })
+            .with_context(|| anyhow::anyhow!("No quality found."))??;
 
         // encryption
         lines.next();
         // ESSID
         let ssid = lines
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No ssid found."))?
-            .split("ESSID:")
-            .last()
+            .and_then(|token| token.split("ESSID:").last())
             .unwrap_or("")
             .replace('\"', "");
 
         Ok(Self {
             ssid,
-            mac: mac.to_string(),
-            freq,
+            mac,
             channel,
-            quality: (q1 / q2) as f32,
-            signal,
+            quality,
         })
     }
 }
 
 #[cfg(target_os = "windows")]
-impl TryFrom<&str> for Wifi {
-    type Error = anyhow::Error;
+pub(crate) fn into_wifi_vec(_x: &str) -> Result<Vec<Wifi>, anyhow::Error> {
+    let mut lines = _x.lines();
+    // the first line has the SSID that all APs will have.
+    let ssid = lines
+        .next()
+        .and_then(|tok| tok.split(": ").last())
+        .map(str::to_string)
+        .unwrap_or_default();
 
-    fn try_from(value: &str) -> anyhow::Result<Self> {
-        anyhow::anyhow!("Windows support not yet implemented. Give the dev a coffee.")
-    }
+    // Type of network
+    lines.next();
+
+    // Authentication
+    lines.next();
+
+    // Cryptography
+    lines.next();
+
+    let collected = lines.collect::<Vec<_>>();
+
+    let wifis = collected
+        .chunks(6)
+        .flat_map(|chunk| {
+            let mut iter_chunk = chunk.iter();
+
+            let mac = iter_chunk
+                .next()
+                .and_then(|tok| tok.split(": ").last())
+                .map(str::to_string)
+                .with_context(|| anyhow::anyhow!("Couldn't access quality."))?;
+
+            let quality = iter_chunk
+                .next()
+                .and_then(|tok| tok.split(": ").last())
+                .and_then(|tok| tok.split('%').next())
+                .map(f32::from_str)
+                .with_context(|| anyhow::anyhow!("Couldn't find quality."))??;
+
+            let channel = iter_chunk
+                .next()
+                .and_then(|tok| tok.split(": ").last())
+                .map(str::parse)
+                .with_context(|| anyhow::anyhow!("Couldn't find a channel."))??;
+
+            Ok(Wifi {
+                ssid: ssid.clone(),
+                mac,
+                channel,
+                quality: quality / 100f32,
+            })
+        })
+        .collect::<Vec<Wifi>>();
+
+    Ok(wifis)
 }
 
 #[cfg(target_os = "macos")]

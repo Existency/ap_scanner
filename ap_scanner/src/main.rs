@@ -1,5 +1,6 @@
 mod scanning;
 use clap::Parser;
+use scanning::reading::Reading;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -28,15 +29,15 @@ fn main() -> anyhow::Result<()> {
     }
 
     if let Some(place) = args.place {
-        let measure = scanning::measure::Measure::new(place)?;
+        let reading = Reading::new(place)?;
 
         if let Some(save) = args.save {
-            measure.to_json(save)?;
+            reading.serialize(save)?;
         } else {
-            println!("{:#?}", measure);
+            println!("{:#?}", reading);
         }
     } else if let Some(load) = args.load {
-        let measure = scanning::measure::Measure::from_json(load)?;
+        let measure = Reading::deserialize(load)?;
 
         println!("{:#?}", measure);
     } else {

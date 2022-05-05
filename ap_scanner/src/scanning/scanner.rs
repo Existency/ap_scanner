@@ -8,14 +8,12 @@ pub struct Scanner;
 impl Scanner {
     pub fn scan() -> anyhow::Result<Vec<Wifi>> {
         // TODO: Find the correct interface
-
-        let interface = Self::get_interface()?;
-
         let child = Command::new("iwlist")
-            .args([&interface, "scanning"])
-            .output()?;
+            .args([&Self::get_interface()?, "scanning"])
+            .output()?
+            .stdout;
 
-        let cls = String::from_utf8(child.stdout)?;
+        let cls = String::from_utf8(child)?;
 
         let mut clients = cls.split("Cell ");
         // skip first client since it's trash
@@ -25,28 +23,24 @@ impl Scanner {
         // need to use sudo because of the iwlist command (else it only shows the current connection)
         // need to figure out how to get the right interface
         // scan with iwlist accesspoints
-
-        Ok(clients
-            .par_bridge()
-            .filter_map(|x| Wifi::try_from(x).ok())
-            .collect::<Vec<_>>())
+        Ok(clients.par_bridge().flat_map(str::parse).collect())
     }
 
     fn get_interface() -> anyhow::Result<String> {
+        use anyhow::Context;
+
         let iw_out = Command::new("iw")
             .arg("dev")
             .output()
-            .map_err(|_| anyhow::anyhow!("The command `iw` was not found."))?
+            .context(anyhow::anyhow!("The command `iw` was not found."))?
             .stdout;
 
         Ok(String::from_utf8_lossy(&iw_out)
             .split("Interface ")
             .take(2)
             .last()
-            .ok_or_else(|| anyhow::anyhow!("No interface found."))?
-            .split('\n')
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No interface found."))?
+            .and_then(|tok| tok.split('\n').next())
+            .with_context(|| anyhow::anyhow!("No interface found."))?
             .to_string())
     }
 }
@@ -54,8 +48,25 @@ impl Scanner {
 #[cfg(target_os = "windows")]
 impl Scanner {
     pub fn scan() -> anyhow::Result<Vec<Wifi>> {
-        // netsh wlan show all (limpar lixo)
-        compile_error!("Windows support not yet implemented. Give the dev a coffee.")
+        use super::wifi::into_wifi_vec;
+
+        let child_out = Command::new("netsh")
+            .args(["wlan", "show", "network", "mode=BSSID"])
+            .output()?
+            .stdout;
+
+        let cls = String::from_utf8(child_out)?;
+
+        let mut ssids = cls.split("SSID ");
+        ssids.next();
+
+        let wifi_vec = ssids
+            .par_bridge()
+            .flat_map(into_wifi_vec)
+            .flatten()
+            .collect::<Vec<_>>();
+
+        Ok(wifi_vec)
     }
 }
 
