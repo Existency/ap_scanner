@@ -18,7 +18,6 @@ pub struct Wifi {
 #[cfg(target_os = "linux")]
 impl FromStr for Wifi {
     type Err = anyhow::Error;
-
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut lines = s.lines();
 
@@ -127,6 +126,6 @@ impl TryFrom<&str> for Wifi {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> anyhow::Result<Self> {
-        anyhow::anyhow!("MacOS support not yet implemented. Give the dev a coffee.")
+        compile_error!("MacOS support not yet implemented. Give the dev a coffee.")
     }
 }
