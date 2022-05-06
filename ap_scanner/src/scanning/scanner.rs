@@ -1,4 +1,5 @@
 use super::wifi::Wifi;
+use anyhow::Context;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::process::Command;
 
@@ -8,14 +9,13 @@ pub struct Scanner;
 impl Scanner {
     pub fn scan() -> anyhow::Result<Vec<Wifi>> {
         // TODO: Find the correct interface
-        let child = Command::new("iwlist")
+        let child_stdout = Command::new("iwlist")
             .args([&Self::get_interface()?, "scanning"])
-            .output()?
-            .stdout;
+            .output()
+            .map(|out| String::from_utf8(out.stdout))
+            .with_context(|| anyhow::anyhow!("No output from \"iwlist scanning\""))??;
 
-        let cls = String::from_utf8(child)?;
-
-        let mut clients = cls.split("Cell ");
+        let mut clients = child_stdout.split("Cell ");
         // skip first client since it's trash
         clients.next();
 
@@ -27,12 +27,10 @@ impl Scanner {
     }
 
     fn get_interface() -> anyhow::Result<String> {
-        use anyhow::Context;
-
         let iw_out = Command::new("iw")
             .arg("dev")
             .output()
-            .context(anyhow::anyhow!("The command `iw` was not found."))?
+            .with_context(|| anyhow::anyhow!("The command `iw` was not found."))?
             .stdout;
 
         Ok(String::from_utf8_lossy(&iw_out)
@@ -52,12 +50,11 @@ impl Scanner {
 
         let child_out = Command::new("netsh")
             .args(["wlan", "show", "network", "mode=BSSID"])
-            .output()?
-            .stdout;
+            .output()
+            .map(|out| String::from_utf8(out.stdout))
+            .with_context(|| anyhow::anyhow!("No output from \"netsh\""))??;
 
-        let cls = String::from_utf8(child_out)?;
-
-        let mut ssids = cls.split("SSID ");
+        let mut ssids = child_out.split("SSID ");
         ssids.next();
 
         let wifi_vec = ssids

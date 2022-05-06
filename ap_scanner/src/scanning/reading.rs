@@ -1,5 +1,7 @@
 use super::{scanner::Scanner, wifi::Wifi};
+
 use anyhow::Context;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +13,7 @@ pub struct Reading {
     pub timestamp: u128,
     // identifier of the local this measure was taken
     pub local: String,
-    // count of the number of wifi networks found
+    // number of wifi networks in this vicinity
     pub wifi_count: usize,
     // list of wifi networks found
     pub wifi_list: Vec<Wifi>,
@@ -46,16 +48,9 @@ impl Reading {
         // given a list of wifi networks distribute them to the appropriate channels
         // and output to a log file
 
-        self.wifi_list.iter().for_each(|_wifi| {
-            todo!("analyze wifi networks")
-            // non overlapping 2.4 GHz channels:
-            // 1 6 11
+        let channel_distribution = self.wifi_list.iter().into_group_map_by(|x| x.channel);
 
-            // non overlapping 5 GHz channels:
-            // 36 40 44 48 52 56 60 64
-            // 100 104 108 112 116 120 124 128 136 140 144
-            // 149 153 157 161 165
-        });
+        // sort
 
         Ok(())
     }

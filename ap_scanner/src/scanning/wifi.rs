@@ -1,7 +1,40 @@
 use anyhow::{Context, Ok};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-// - Frequência, Canais, Potência
+use std::{any, str::FromStr};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum Frequency {
+    Freq2_4GHz,
+    Freq5Ghz,
+}
+
+#[cfg(target_os = "linux")]
+impl FromStr for Frequency {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<u8>()? {
+            2 => Ok(Self::Freq2_4GHz),
+            5 => Ok(Self::Freq5Ghz),
+            n => Err(anyhow::anyhow!("Unsupported frequency. {}", n)),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl FromStr for Frequency {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.ends_with("ac") {
+            Ok(Self::Freq2_4GHz)
+        } else if s.ends_with('n') {
+            Ok(Self::Freq5Ghz)
+        } else {
+            Err(anyhow::anyhow!("Unsupported frequency."))
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Wifi {
@@ -13,6 +46,8 @@ pub struct Wifi {
     pub channel: u8,
     // quality of this wifi
     pub quality: f32,
+    // frequency
+    pub freq: Frequency,
 }
 
 #[cfg(target_os = "linux")]
@@ -23,17 +58,22 @@ impl FromStr for Wifi {
 
         let mac = lines
             .next()
-            .and_then(|line| line.split("Address: ").last())
+            .and_then(|line| line.split(": ").last())
             .map(str::to_string)
             .unwrap_or_default();
 
         let channel = lines
             .next()
-            .and_then(|line| line.split("Channel:").last())
+            .and_then(|line| line.split(':').last())
             .and_then(|channel_str| channel_str.parse::<u8>().ok())
             .with_context(|| anyhow::anyhow!("No channel found."))?;
 
-        lines.next();
+        let frequency: Frequency = lines
+            .next()
+            .and_then(|line| line.split(':').last())
+            .and_then(|tok| tok.split('.').next())
+            .map(str::parse)
+            .with_context(|| anyhow::anyhow!("Couldn't find frequency."))??;
 
         let quality = lines
             .next()
@@ -51,7 +91,7 @@ impl FromStr for Wifi {
         // ESSID
         let ssid = lines
             .next()
-            .and_then(|token| token.split("ESSID:").last())
+            .and_then(|token| token.split("ESSID").last())
             .unwrap_or("")
             .replace('\"', "");
 
@@ -60,12 +100,15 @@ impl FromStr for Wifi {
             mac,
             channel,
             quality,
+            freq: frequency,
         })
     }
 }
 
 #[cfg(target_os = "windows")]
 pub(crate) fn into_wifi_vec(_x: &str) -> Result<Vec<Wifi>, anyhow::Error> {
+    use itertools::Itertools;
+
     let mut lines = _x.lines();
     // the first line has the SSID that all APs will have.
     let ssid = lines
@@ -83,27 +126,31 @@ pub(crate) fn into_wifi_vec(_x: &str) -> Result<Vec<Wifi>, anyhow::Error> {
     // Cryptography
     lines.next();
 
-    let collected = lines.collect::<Vec<_>>();
-
-    let wifis = collected
+    let wifis = lines
+        .into_iter()
         .chunks(6)
-        .flat_map(|chunk| {
-            let mut iter_chunk = chunk.iter();
-
-            let mac = iter_chunk
+        .into_iter()
+        .flat_map(|mut chunk| {
+            let mac = chunk
                 .next()
                 .and_then(|tok| tok.split(": ").last())
                 .map(str::to_string)
                 .with_context(|| anyhow::anyhow!("Couldn't access quality."))?;
 
-            let quality = iter_chunk
+            let quality = chunk
                 .next()
                 .and_then(|tok| tok.split(": ").last())
                 .and_then(|tok| tok.split('%').next())
                 .map(f32::from_str)
                 .with_context(|| anyhow::anyhow!("Couldn't find quality."))??;
 
-            let channel = iter_chunk
+            let freq = chunk
+                .next()
+                .and_then(|tok| tok.split(": ").last())
+                .map(str::parse)
+                .with_context(|| anyhow::anyhow!("Couldn't find frequency."))??;
+
+            let channel = chunk
                 .next()
                 .and_then(|tok| tok.split(": ").last())
                 .map(str::parse)
@@ -114,9 +161,10 @@ pub(crate) fn into_wifi_vec(_x: &str) -> Result<Vec<Wifi>, anyhow::Error> {
                 mac,
                 channel,
                 quality: quality / 100f32,
+                freq,
             })
         })
-        .collect::<Vec<Wifi>>();
+        .collect_vec();
 
     Ok(wifis)
 }
