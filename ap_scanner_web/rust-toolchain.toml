@@ -1,0 +1,3 @@
+# we need nightly to build rocket
+[toolchain]
+channel = "nightly-2022-03-23-x86_64-unknown-linux-gnu"

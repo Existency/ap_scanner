@@ -6,3 +6,21 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.57"
+lazy_static = "1.4.0"
+rocket = "0.5.0-rc.2"
+serde = {version = "1.0.136", features = ["derive"]}
+serde_json = "1.0.79"
+walkdir = "2.3.2"
+
+[dependencies.uuid]
+version = "1.1.0"
+features = [
+    "v4",                # V4 UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
+[dependencies.rocket_dyn_templates]
+version = "0.1.0-rc.2"
+features = ["handlebars", "tera"]

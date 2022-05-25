@@ -1,7 +1,6 @@
 mod scanning;
 use clap::Parser;
-use scanning::reading::Reading;
-
+use scanning::{daemon::daemon_service, reading::Reading};
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -25,7 +24,12 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     if args.daemon {
-        unimplemented!("Daemon not yet implemented. Give the dev a coffee.")
+        if let Some(place) = args.place {
+            daemon_service(place);
+            return Ok(());
+        } else {
+            println!("Please specify a place");
+        }
     }
 
     if let Some(place) = args.place {
@@ -35,6 +39,8 @@ fn main() -> anyhow::Result<()> {
             reading.serialize(save)?;
         } else {
             println!("{:#?}", reading);
+
+            reading.output_analysis()?;
         }
     } else if let Some(load) = args.load {
         let measure = Reading::deserialize(load)?;
