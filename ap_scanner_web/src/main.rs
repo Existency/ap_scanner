@@ -38,7 +38,9 @@ fn rocket() -> _ {
             upload,
             default_route,
             serve,
-            index
+            index,
+            file_suggestion_raw,
+            file_suggestion,
         ],
     )
 }
