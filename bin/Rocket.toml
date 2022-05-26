@@ -1,0 +1,25 @@
+[default]
+address = "0.0.0.0"
+port = 9999
+workers = 16
+keep_alive = 5
+ident = "Rocket"
+log_level = "normal"
+temp_dir = "/tmp"
+cli_colors = true
+# secret_key = "TODO: Get this working before demonstrating it?"
+
+[default.limits]
+form = "1 MiB"
+json = "1 MiB"
+
+# TODO: Get some certs.
+# [default.tls]
+# certs = "/path/to/certs/cert-chain.pem"
+# key = "/path/to/certs/key.pem"
+
+[default.shutdown]
+ctrlc = true
+signals = ["term", "hup"]
+grace = 5
+mercy = 5
